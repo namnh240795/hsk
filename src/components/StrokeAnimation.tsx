@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import gsap from 'gsap';
 import { Stroke } from '../types/character';
 
@@ -9,7 +9,6 @@ interface StrokeAnimationProps {
 
 export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimationProps) {
   const pathsRef = useRef<(SVGPathElement | null)[]>([]);
-  const [currentStroke, setCurrentStroke] = useState(0);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
 
   const replay = useCallback(() => {
@@ -23,8 +22,6 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
         path.style.strokeDashoffset = `${length}`;
       }
     });
-
-    setCurrentStroke(0);
 
     // Kill existing timeline
     timelineRef.current?.kill();
@@ -49,7 +46,6 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
           strokeDashoffset: 0,
           duration: duration / 1000,
           ease: 'power2.inOut',
-          onStart: () => setCurrentStroke(index + 1),
         },
         delaySeconds
       );
@@ -67,11 +63,6 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
 
   return (
     <div className="relative w-full h-full">
-      {/* Stroke number indicator */}
-      <div className="absolute -top-2 left-1/2 transform -translate-x-1/2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full z-10">
-        {currentStroke} / {strokes.length}
-      </div>
-
       <svg viewBox="0 0 1024 1024" className="w-full h-full">
         {strokes.map((stroke, index) => (
           <path
