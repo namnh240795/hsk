@@ -134,24 +134,43 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
         const height = Math.max(...ys) - Math.min(...ys);
         const isHorizontal = width > height * 1.2;
 
-        // Set initial clip
+        // Set initial clip - hide the END of the stroke (right for horizontal, bottom for vertical)
         path.style.clipPath = isHorizontal
-          ? 'inset(0% 0 0 100%)'
-          : 'inset(100% 0 0 0)';
+          ? 'inset(0% 100% 0 0)'  // Hide right (fill from left to right)
+          : 'inset(0 0 100% 0)';   // Hide bottom (fill from top to bottom)
 
         // Animate to reveal
         timelineRef.current!.to(
           path,
           {
-            clipPath: 'inset(0% 0 0 0)',
+            clipPath: 'inset(0% 0% 0 0)',
             duration: duration / 1000,
             ease: 'power2.inOut',
           },
           delaySeconds
         );
       } else {
-        // Complex stroke: animate in segments
-        path.style.clipPath = 'inset(0% 0 0 100%)';
+        // Complex stroke: detect overall direction for initial clip
+        const pathLength = path.getTotalLength();
+        const points = [];
+        const numSamples = 10;
+        for (let i = 0; i <= numSamples; i++) {
+          try {
+            points.push(path.getPointAtLength((i / numSamples) * pathLength));
+          } catch {
+            points.push({ x: 512, y: 512 });
+          }
+        }
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+        const width = Math.max(...xs) - Math.min(...xs);
+        const height = Math.max(...ys) - Math.min(...ys);
+        const isHorizontal = width > height * 1.2;
+
+        // Complex stroke: animate in segments - hide from end
+        path.style.clipPath = isHorizontal
+          ? 'inset(0% 100% 0 0)'  // Hide right (fill from left to right)
+          : 'inset(0 0 100% 0)';   // Hide bottom (fill from top to bottom)
 
         // Create staggered reveal for each segment
         const segmentDuration = (duration / 1000) / segments.length;
