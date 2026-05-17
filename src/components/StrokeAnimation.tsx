@@ -7,15 +7,17 @@ interface StrokeAnimationProps {
   onComplete?: () => void;
 }
 
+type StrokeDirection = 'horizontal' | 'vertical';
+
 export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimationProps) {
   const pathsRef = useRef<(SVGPathElement | null)[]>([]);
-  const fillRef = useRef<SVGGElement>(null);
+  const fillRefs = useRef<(SVGGElement | null)[]>([]);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
 
   const replay = useCallback(() => {
-    if (!pathsRef.current.length) return;
+    if (!pathsRef.current.length || !fillRefs.current.length) return;
 
-    // Reset all paths to invisible (outline phase)
+    // Reset all outline paths to invisible
     pathsRef.current.forEach((path) => {
       if (path) {
         const length = path.getTotalLength();
@@ -25,13 +27,47 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
       }
     });
 
-    // Reset fill to hidden
-    if (fillRef.current) {
-      fillRef.current.style.clipPath = 'inset(100% 0 0 0)';
-    }
+    // Reset all fill paths (hidden by clip)
+    fillRefs.current.forEach((fillRef) => {
+      if (fillRef) {
+        fillRef.style.clipPath = 'inset(0% 100% 0 0)'; // Fully hidden
+      }
+    });
 
     // Kill existing timeline
     timelineRef.current?.kill();
+
+    // Analyze strokes to get directions
+    const patterns = strokes.map((_, index) => {
+      const path = pathsRef.current[index];
+      if (!path) return { direction: 'horizontal' as StrokeDirection, clipPath: 'inset(0% 0 0 0)' };
+
+      const length = path.getTotalLength();
+      const points: { x: number; y: number }[] = [];
+      const numSamples = Math.min(20, Math.floor(length / 10));
+      for (let i = 0; i <= numSamples; i++) {
+        const point = path.getPointAtLength((i / numSamples) * length);
+        points.push({ x: point.x, y: point.y });
+      }
+
+      const xs = points.map(p => p.x);
+      const ys = points.map(p => p.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const width = maxX - minX;
+      const height = maxY - minY;
+
+      const direction: StrokeDirection = width > height * 1.2 ? 'horizontal' : 'vertical';
+
+      return {
+        direction,
+        clipPath: direction === 'horizontal'
+          ? 'inset(0% 100% 0 0)' // Clip from left (hide left side)
+          : 'inset(100% 0 0 0)'  // Clip from top (hide top side)
+      };
+    });
 
     // Create new timeline
     timelineRef.current = gsap.timeline({
@@ -61,21 +97,27 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
       cumulativeDelay += duration + 300;
     });
 
-    // Phase 2: Fill animation - reveal from top-left to bottom-right
+    // Phase 2: Animate fills based on detected direction
     const fillDelay = cumulativeDelay + 200;
-    if (fillRef.current) {
-      // Animate clip-path from top (inset top 0, bottom 100%) to no clip (inset 0)
-      // This creates a sweeping motion from top to bottom, simulating left-to-right, top-to-bottom fill
+
+    strokes.forEach((_, index) => {
+      const fillRef = fillRefs.current[index];
+      if (!fillRef) return;
+
+      const pattern = patterns[index];
+
       timelineRef.current!.to(
-        fillRef.current,
+        fillRef,
         {
-          clipPath: 'inset(0% 0 0 0)',
-          duration: 1.2,
+          clipPath: pattern.direction === 'horizontal'
+            ? 'inset(0% 0% 0 0)'  // Reveal fully from left
+            : 'inset(0% 0 0 0)',   // Reveal fully from top
+          duration: 0.8,
           ease: 'power2.inOut',
         },
-        fillDelay / 1000
+        (fillDelay + index * 100) / 1000
       );
-    }
+    });
   }, [strokes, onComplete]);
 
   useEffect(() => {
@@ -88,11 +130,14 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
   return (
     <div className="relative w-full h-full">
       <svg viewBox="0 0 1024 1024" className="w-full h-full">
-        {/* Filled character layer - revealed after outlines */}
-        <g ref={fillRef} style={{ clipPath: 'inset(100% 0 0 0)' }}>
-          {strokes.map((stroke, index) => (
+        {/* Filled character layers - each stroke reveals based on its direction */}
+        {strokes.map((stroke, index) => (
+          <g
+            key={`fill-${index}`}
+            ref={(el) => { fillRefs.current[index] = el; }}
+            style={{ clipPath: 'inset(0% 100% 0 0)' }}
+          >
             <path
-              key={`fill-${index}`}
               d={stroke.path}
               fill="#1f2937"
               stroke="none"
@@ -100,10 +145,10 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-          ))}
-        </g>
+          </g>
+        ))}
 
-        {/* Stroke outlines (drawn first, then fade out as fill appears) */}
+        {/* Stroke outlines (drawn first) */}
         {strokes.map((stroke, index) => (
           <path
             key={`outline-${index}`}
