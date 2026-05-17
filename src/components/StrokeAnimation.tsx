@@ -14,12 +14,12 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
   const replay = useCallback(() => {
     if (!pathsRef.current.length) return;
 
-    // Reset all paths to invisible
+    // Reset all paths to invisible (fully drawn)
     pathsRef.current.forEach((path) => {
       if (path) {
         const length = path.getTotalLength();
         path.style.strokeDasharray = `${length}`;
-        path.style.strokeDashoffset = `${length}`;
+        path.style.strokeDashoffset = '0';
       }
     });
 
@@ -43,7 +43,7 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
       timelineRef.current!.to(
         path,
         {
-          strokeDashoffset: 0,
+          strokeDashoffset: path.getTotalLength(),
           duration: duration / 1000,
           ease: 'power2.inOut',
         },
