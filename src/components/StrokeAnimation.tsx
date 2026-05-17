@@ -27,10 +27,29 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
       }
     });
 
-    // Reset all fill paths (hidden by clip)
-    fillRefs.current.forEach((fillRef) => {
-      if (fillRef) {
-        fillRef.style.clipPath = 'inset(0% 100% 0 0)'; // Fully hidden
+    // Reset all fill paths (hidden by clip - each based on direction)
+    strokes.forEach((_, index) => {
+      const fillRef = fillRefs.current[index];
+      const path = pathsRef.current[index];
+      if (!fillRef) return;
+
+      if (path) {
+        const length = path.getTotalLength();
+        const points: { x: number; y: number }[] = [];
+        const numSamples = Math.min(20, Math.floor(length / 10));
+        for (let i = 0; i <= numSamples; i++) {
+          const point = path.getPointAtLength((i / numSamples) * length);
+          points.push({ x: point.x, y: point.y });
+        }
+        const xs = points.map(p => p.x);
+        const ys = points.map(p => p.y);
+        const width = Math.max(...xs) - Math.min(...xs);
+        const height = Math.max(...ys) - Math.min(...ys);
+        const isHorizontal = width > height * 1.2;
+
+        fillRef.style.clipPath = isHorizontal
+          ? 'inset(0% 0 0 100%)' // Hide left side (fill from left to right)
+          : 'inset(100% 0 0 0)';  // Hide top side (fill from top to bottom)
       }
     });
 
