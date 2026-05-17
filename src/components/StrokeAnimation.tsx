@@ -85,12 +85,11 @@ function analyzePathSegments(path: SVGPathElement): PathSegment[] {
 }
 
 export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimationProps) {
-  const containerRef = useRef<SVGGElement>(null);
   const pathRefs = useRef<(SVGPathElement | null)[]>([]);
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
 
   const replay = useCallback(() => {
-    if (!containerRef.current || !pathRefs.current.length) return;
+    if (!pathRefs.current.length) return;
 
     // Kill existing timeline
     timelineRef.current?.kill();
