@@ -64,8 +64,8 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
       return {
         direction,
         clipPath: direction === 'horizontal'
-          ? 'inset(0% 100% 0 0)' // Clip from left (hide left side)
-          : 'inset(100% 0 0 0)'  // Clip from top (hide top side)
+          ? 'inset(0% 0 0 100%)' // Clip from left (hide left side - fill from left to right)
+          : 'inset(100% 0 0 0)'  // Clip from top (hide top side - fill from top to bottom)
       };
     });
 
