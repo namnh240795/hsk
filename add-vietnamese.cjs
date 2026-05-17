@@ -353,17 +353,33 @@ const vietnameseMap = {
 
 const lines = content.split('\n');
 const result = [];
+let count = 0;
 
 for (const line of lines) {
-  const match = line.match(/\{ chinese: '([^']+)', pinyin: '([^']+)', english: '([^']+)'/);
-  if (match) {
-    const chinese = match[1];
-    const vietnamese = vietnameseMap[chinese] || '';
-    result.push(line.replace(/\}$/, `, vietnamese: '${vietnamese}' }`));
+  // Find lines that end with }, and contain chinese, pinyin, english
+  if (line.includes('chinese:') && line.includes('pinyin:') && line.includes('english:')) {
+    // Extract the chinese value using a simple regex
+    const chineseMatch = line.match(/chinese: '([^']+)'/);
+    if (chineseMatch) {
+      const chinese = chineseMatch[1];
+      const vietnamese = vietnameseMap[chinese] || '';
+      // Add vietnamese field before the closing }
+      const newLine = line.trim();
+      if (newLine.endsWith('},')) {
+        result.push(newLine.replace('},', `, vietnamese: '${vietnamese}' },`));
+      } else if (newLine.endsWith('}')) {
+        result.push(newLine.replace('}', `, vietnamese: '${vietnamese}' }`));
+      } else {
+        result.push(line);
+      }
+      count++;
+    } else {
+      result.push(line);
+    }
   } else {
     result.push(line);
   }
 }
 
 fs.writeFileSync('src/data/sentences.ts', result.join('\n'));
-console.log('Done! Added Vietnamese translations');
+console.log('Done! Added Vietnamese translations to', count, 'sentences');
