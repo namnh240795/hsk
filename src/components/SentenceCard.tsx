@@ -38,6 +38,7 @@ export default function SentenceCard({
 }: SentenceCardProps) {
   const [showPinyin, setShowPinyin] = useState(true);
   const [showEnglish, setShowEnglish] = useState(true);
+  const [showVietnamese, setShowVietnamese] = useState(true);
 
   useEffect(() => {
     speakSentence(sentence.chinese);
@@ -91,6 +92,15 @@ export default function SentenceCard({
         </div>
       )}
 
+      {/* Vietnamese meaning */}
+      {showVietnamese && (
+        <div className="text-center mt-2">
+          <span className="text-lg text-green-600 italic">
+            {sentence.vietnamese}
+          </span>
+        </div>
+      )}
+
       {/* Toggle buttons */}
       <div className="flex justify-center gap-4 mt-6">
         <button
@@ -108,6 +118,14 @@ export default function SentenceCard({
           }`}
         >
           English
+        </button>
+        <button
+          onClick={() => setShowVietnamese(!showVietnamese)}
+          className={`px-3 py-1 rounded-full text-sm ${
+            showVietnamese ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700'
+          }`}
+        >
+          Tiếng Việt
         </button>
       </div>
 

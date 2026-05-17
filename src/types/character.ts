@@ -7,5 +7,6 @@ export interface CharacterData {
   character: string;
   pinyin: string;
   meaning: string;
+  vietnamese?: string;
   strokes: Stroke[];
 }

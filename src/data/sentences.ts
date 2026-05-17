@@ -2,6 +2,7 @@ export interface Sentence {
   chinese: string;
   pinyin: string;
   english: string;
+  vietnamese?: string;
 }
 
 export const sentences: Sentence[] = [
