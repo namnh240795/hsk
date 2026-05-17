@@ -7,7 +7,7 @@ interface StrokeAnimationProps {
   onComplete?: () => void;
 }
 
-interface PathSegment {
+interface Segment {
   startX: number;
   startY: number;
   endX: number;
@@ -15,68 +15,107 @@ interface PathSegment {
   direction: 'horizontal' | 'vertical';
 }
 
-function analyzePathSegments(path: SVGPathElement): PathSegment[] {
+/**
+ * Rule-based stroke fill animation:
+ *
+ * 1. SIMPLE STROKE (single direction):
+ *    - Horizontal: fill from left edge to right edge
+ *    - Vertical: fill from top edge to bottom edge
+ *
+ * 2. COMPLEX STROKE (multiple segments):
+ *    - First segment determines primary fill direction
+ *    - Horizontal-then-vertical → fill left to right, then top to bottom
+ *    - Vertical-then-horizontal → fill top to bottom, then left to right
+ *    - Each segment reveals in sequential order matching natural writing
+ *
+ * 3. IMPLEMENTATION:
+ *    - Use bounding box analysis to determine stroke direction
+ *    - clip-path inset reveals from appropriate edge
+ *    - For complex strokes, use progressive reveal that follows writing order
+ */
+
+function analyzeStrokeDirection(path: SVGPathElement): {
+  isHorizontal: boolean;
+  startSide: 'left' | 'top';
+  segments: Segment[];
+} {
   const length = path.getTotalLength();
-  const numSamples = 30;
   const points: { x: number; y: number }[] = [];
+  const numSamples = 30;
 
   for (let i = 0; i <= numSamples; i++) {
     try {
       const point = path.getPointAtLength((i / numSamples) * length);
       points.push({ x: point.x, y: point.y });
     } catch {
-      // Skip invalid points
+      points.push({ x: 512, y: 512 });
     }
   }
 
-  if (points.length < 2) return [];
+  // Calculate bounding box
+  const xs = points.map(p => p.x);
+  const ys = points.map(p => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const width = maxX - minX;
+  const height = maxY - minY;
 
-  const segments: PathSegment[] = [];
-  let currentSegment: { points: typeof points; direction: 'horizontal' | 'vertical' } | null = null;
+  // Determine if stroke is primarily horizontal or vertical
+  // using overall bounding box (not per-segment)
+  const isHorizontal = width > height;
+
+  // Determine which edge is the START (where fill begins)
+  // For horizontal: left edge is start (fill goes left → right)
+  // For vertical: top edge is start (fill goes top → bottom)
+  const startSide = isHorizontal ? 'left' : 'top';
+
+  // Analyze segments to detect direction changes
+  const segments: Segment[] = [];
+  let currentSeg: { points: typeof points; direction: 'horizontal' | 'vertical' } | null = null;
 
   for (let i = 0; i < points.length - 1; i++) {
     const dx = points[i + 1].x - points[i].x;
     const dy = points[i + 1].y - points[i].y;
-    const segmentLength = Math.sqrt(dx * dx + dy * dy);
+    const segLen = Math.sqrt(dx * dx + dy * dy);
 
-    if (segmentLength < 10) continue;
+    if (segLen < 10) continue;
 
-    const isHorizontal = Math.abs(dx) > Math.abs(dy);
-    const direction = isHorizontal ? 'horizontal' : 'vertical';
+    const isHoriz = Math.abs(dx) > Math.abs(dy);
+    const direction = isHoriz ? 'horizontal' : 'vertical';
 
-    if (currentSegment === null) {
-      currentSegment = { points: [points[i]], direction };
-    } else if (currentSegment.direction === direction) {
-      currentSegment.points.push(points[i]);
+    if (currentSeg === null) {
+      currentSeg = { points: [points[i]], direction };
+    } else if (currentSeg.direction === direction) {
+      currentSeg.points.push(points[i]);
     } else {
-      if (currentSegment.points.length >= 2) {
-        const start = currentSegment.points[0];
-        const end = currentSegment.points[currentSegment.points.length - 1];
+      // Direction changed
+      if (currentSeg.points.length >= 2) {
         segments.push({
-          startX: start.x,
-          startY: start.y,
-          endX: end.x,
-          endY: end.y,
-          direction: currentSegment.direction,
+          startX: currentSeg.points[0].x,
+          startY: currentSeg.points[0].y,
+          endX: currentSeg.points[currentSeg.points.length - 1].x,
+          endY: currentSeg.points[currentSeg.points.length - 1].y,
+          direction: currentSeg.direction,
         });
       }
-      currentSegment = { points: [points[i]], direction };
+      currentSeg = { points: [points[i]], direction };
     }
   }
 
-  if (currentSegment && currentSegment.points.length >= 2) {
-    const start = currentSegment.points[0];
-    const end = currentSegment.points[currentSegment.points.length - 1];
+  // Add final segment
+  if (currentSeg && currentSeg.points.length >= 2) {
     segments.push({
-      startX: start.x,
-      startY: start.y,
-      endX: end.x,
-      endY: end.y,
-      direction: currentSegment.direction,
+      startX: currentSeg.points[0].x,
+      startY: currentSeg.points[0].y,
+      endX: currentSeg.points[currentSeg.points.length - 1].x,
+      endY: currentSeg.points[currentSeg.points.length - 1].y,
+      direction: currentSeg.direction,
     });
   }
 
-  return segments;
+  return { isHorizontal, startSide, segments };
 }
 
 export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimationProps) {
@@ -87,12 +126,6 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
     if (!pathRefs.current.length) return;
 
     timelineRef.current?.kill();
-
-    const allSegments = pathRefs.current.map((path) => {
-      if (!path) return [];
-      return analyzePathSegments(path);
-    });
-
     timelineRef.current = gsap.timeline({
       onComplete: () => onComplete?.(),
     });
@@ -103,95 +136,66 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
       const path = pathRefs.current[index];
       if (!path) return;
 
-      const segments = allSegments[index];
       const duration = stroke.duration || 800;
       const delaySeconds = cumulativeDelay / 1000;
 
-      // Get bounding box of entire stroke
-      const pathLength = path.getTotalLength();
-      const points: { x: number; y: number }[] = [];
-      const numSamples = 20;
-      for (let i = 0; i <= numSamples; i++) {
-        try {
-          points.push(path.getPointAtLength((i / numSamples) * pathLength));
-        } catch {
-          points.push({ x: 512, y: 512 });
-        }
-      }
+      // Analyze stroke to determine fill direction
+      const { isHorizontal, segments } = analyzeStrokeDirection(path);
 
-      const xs = points.map(p => p.x);
-      const ys = points.map(p => p.y);
-      const minX = Math.min(...xs);
-      const maxX = Math.max(...xs);
-      const minY = Math.min(...ys);
-      const maxY = Math.max(...ys);
-      const width = maxX - minX;
-      const height = maxY - minY;
-
-      // Determine overall stroke direction and fill direction
-      // Horizontal: fill left (minX) to right (maxX)
-      // Vertical: fill top (minY) to bottom (maxY)
       if (segments.length <= 1) {
-        // Simple stroke - use bounding box to determine fill direction
-        path.style.clipPath = width > height
-          ? 'inset(0% 0 0 100%)'  // Hide left, reveal left-to-right
-          : 'inset(0 0 0 0)';      // For vertical, hide top to reveal top-to-bottom
-
-        path.style.clipPath = width > height
-          ? 'inset(0% 0 0 100%)'  // left to right
-          : 'inset(100% 0 0 0)';  // top to bottom
-
-        timelineRef.current!.to(
-          path,
-          {
-            clipPath: 'inset(0% 0 0 0)',
-            duration: duration / 1000,
-            ease: 'power2.inOut',
-          },
-          delaySeconds
-        );
-      } else {
-        // Complex stroke with multiple segments
-        // Determine fill direction based on first segment's start point
-        const firstSeg = segments[0];
-        const isHorizontal = firstSeg.direction === 'horizontal';
-
+        // Simple stroke: single direction
         if (isHorizontal) {
-          // Horizontal first - fill left to right
+          // Horizontal stroke: fill left to right
           path.style.clipPath = 'inset(0% 0 0 100%)';
 
-          // Progressive reveal for each segment
-          segments.forEach((_, segIndex) => {
-            const progress = ((segIndex + 1) / segments.length);
-            const clipValue = 100 - progress * 100;
+          timelineRef.current!.to(
+            path,
+            { clipPath: 'inset(0% 0 0 0%)', duration: duration / 1000, ease: 'power2.inOut' },
+            delaySeconds
+          );
+        } else {
+          // Vertical stroke: fill top to bottom
+          path.style.clipPath = 'inset(100% 0 0 0)';
+
+          timelineRef.current!.to(
+            path,
+            { clipPath: 'inset(0% 0 0 0)', duration: duration / 1000, ease: 'power2.inOut' },
+            delaySeconds
+          );
+        }
+      } else {
+        // Complex stroke: multiple segments
+        // First segment determines primary fill direction
+        const firstSegDir = segments[0].direction;
+
+        if (firstSegDir === 'horizontal') {
+          // Horizontal-first: fill left to right progressively
+          path.style.clipPath = 'inset(0% 0 0 100%)';
+
+          const segDuration = (duration / 1000) / segments.length;
+          segments.forEach((_, segIdx) => {
+            const progress = ((segIdx + 1) / segments.length);
+            const rightClip = 100 - progress * 100;
 
             timelineRef.current!.to(
               path,
-              {
-                clipPath: `inset(0% ${clipValue}% 0 0)`,
-                duration: (duration / 1000) / segments.length,
-                ease: 'power2.inOut',
-              },
-              delaySeconds + (segIndex * (duration / 1000) / segments.length)
+              { clipPath: `inset(0% ${rightClip}% 0 0)`, duration: segDuration, ease: 'power2.inOut' },
+              delaySeconds + segIdx * segDuration
             );
           });
         } else {
-          // Vertical first - fill top to bottom
+          // Vertical-first: fill top to bottom progressively
           path.style.clipPath = 'inset(100% 0 0 0)';
 
-          // Progressive reveal for each segment
-          segments.forEach((_, segIndex) => {
-            const progress = ((segIndex + 1) / segments.length);
-            const clipValue = 100 - progress * 100;
+          const segDuration = (duration / 1000) / segments.length;
+          segments.forEach((_, segIdx) => {
+            const progress = ((segIdx + 1) / segments.length);
+            const topClip = 100 - progress * 100;
 
             timelineRef.current!.to(
               path,
-              {
-                clipPath: `inset(${clipValue}% 0 0 0)`,
-                duration: (duration / 1000) / segments.length,
-                ease: 'power2.inOut',
-              },
-              delaySeconds + (segIndex * (duration / 1000) / segments.length)
+              { clipPath: `inset(${topClip}% 0 0 0)`, duration: segDuration, ease: 'power2.inOut' },
+              delaySeconds + segIdx * segDuration
             );
           });
         }
@@ -204,7 +208,9 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
   useEffect(() => {
     replay();
     return () => {
-      timelineRef.current?.kill();
+      if (timelineRef.current) {
+        timelineRef.current.kill();
+      }
     };
   }, [replay]);
 
