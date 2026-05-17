@@ -9,6 +9,7 @@ interface CharacterCardProps {
   onPrevious: () => void;
   onNext: () => void;
   onReplay: () => void;
+  onGoToPage: (page: number) => void;
   isAnimating: boolean;
 }
 
@@ -29,6 +30,7 @@ export default function CharacterCard({
   onPrevious,
   onNext,
   onReplay,
+  onGoToPage,
   isAnimating,
 }: CharacterCardProps) {
   useEffect(() => {
@@ -43,10 +45,21 @@ export default function CharacterCard({
   return (
     <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-2xl mx-auto">
       {/* Progress */}
-      <div className="text-center mb-6">
-        <span className="text-sm text-gray-500">
-          {currentIndex + 1} / {totalCount}
-        </span>
+      <div className="text-center mb-6 flex items-center justify-center gap-2">
+        <input
+          type="number"
+          min="1"
+          max={totalCount}
+          value={currentIndex + 1}
+          onChange={(e) => {
+            const page = parseInt(e.target.value, 10);
+            if (page >= 1 && page <= totalCount) {
+              onGoToPage(page - 1);
+            }
+          }}
+          className="w-16 px-2 py-1 text-center border border-gray-300 rounded-lg text-sm"
+        />
+        <span className="text-sm text-gray-500">/ {totalCount}</span>
       </div>
 
       {/* Main content: character on left, stroke animation on right */}

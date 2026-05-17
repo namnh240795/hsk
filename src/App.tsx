@@ -29,6 +29,11 @@ export default function App() {
     }
   }, [currentIndex, activeTab]);
 
+  const goToPage = useCallback((page: number) => {
+    setCurrentIndex(page);
+    setAnimatingKey((prev) => prev + 1);
+  }, []);
+
   const replayAnimation = useCallback(() => {
     setAnimatingKey((prev) => prev + 1);
   }, []);
@@ -76,6 +81,7 @@ export default function App() {
           onNext={goToNext}
           onReplay={replayAnimation}
           isAnimating={true}
+          onGoToPage={goToPage}
         />
       ) : (
         <SentenceCard
