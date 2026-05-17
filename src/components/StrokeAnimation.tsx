@@ -17,11 +17,34 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
     // Kill existing timeline
     timelineRef.current?.kill();
 
-    // Set initial state - all fills hidden
-    fillRefs.current.forEach((fillRef) => {
-      if (fillRef) {
-        fillRef.style.clipPath = 'inset(0% 100% 0 0)';
+    // Set initial state - each stroke hidden based on its direction
+    strokes.forEach((_, index) => {
+      const fillRef = fillRefs.current[index];
+      const path = fillRef?.querySelector('path');
+      if (!fillRef || !path) return;
+
+      const length = (path as SVGPathElement).getTotalLength?.() || 1000;
+      const points: { x: number; y: number }[] = [];
+      const numSamples = Math.min(20, Math.floor(length / 10));
+      for (let i = 0; i <= numSamples; i++) {
+        try {
+          const point = (path as SVGPathElement).getPointAtLength((i / numSamples) * length);
+          points.push({ x: point.x, y: point.y });
+        } catch {
+          points.push({ x: 512, y: 512 });
+        }
       }
+
+      const xs = points.map(p => p.x);
+      const ys = points.map(p => p.y);
+      const width = Math.max(...xs) - Math.min(...xs);
+      const height = Math.max(...ys) - Math.min(...ys);
+      const isHorizontal = width > height * 1.2;
+
+      // Hide based on fill direction
+      fillRef.style.clipPath = isHorizontal
+        ? 'inset(0% 0 0 100%)'  // Hide left (fill from left to right)
+        : 'inset(100% 0 0 0)';  // Hide top (fill from top to bottom)
     });
 
     // Create new timeline
@@ -62,8 +85,8 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
         fillRef,
         {
           clipPath: isHorizontal
-            ? 'inset(0% 0% 0 0)'   // Reveal from left to right
-            : 'inset(0% 0 0 0)',    // Reveal from top to bottom
+            ? 'inset(0% 0% 0 0)'   // Reveal fully (fill from left to right)
+            : 'inset(0% 0 0 0)',    // Reveal fully (fill from top to bottom)
           duration: duration / 1000,
           ease: 'power2.inOut',
         },
