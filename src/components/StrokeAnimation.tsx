@@ -32,8 +32,6 @@ function analyzePathSegments(path: SVGPathElement): PathSegment[] {
   if (points.length < 2) return [];
 
   const segments: PathSegment[] = [];
-
-  // Detect direction changes and group points into segments
   let currentSegment: { points: typeof points; direction: 'horizontal' | 'vertical' } | null = null;
 
   for (let i = 0; i < points.length - 1; i++) {
@@ -41,7 +39,6 @@ function analyzePathSegments(path: SVGPathElement): PathSegment[] {
     const dy = points[i + 1].y - points[i].y;
     const segmentLength = Math.sqrt(dx * dx + dy * dy);
 
-    // Skip very short segments (likely noise)
     if (segmentLength < 10) continue;
 
     const isHorizontal = Math.abs(dx) > Math.abs(dy);
@@ -52,7 +49,6 @@ function analyzePathSegments(path: SVGPathElement): PathSegment[] {
     } else if (currentSegment.direction === direction) {
       currentSegment.points.push(points[i]);
     } else {
-      // Direction changed - save current segment and start new one
       if (currentSegment.points.length >= 2) {
         const start = currentSegment.points[0];
         const end = currentSegment.points[currentSegment.points.length - 1];
@@ -68,7 +64,6 @@ function analyzePathSegments(path: SVGPathElement): PathSegment[] {
     }
   }
 
-  // Don't forget the last segment
   if (currentSegment && currentSegment.points.length >= 2) {
     const start = currentSegment.points[0];
     const end = currentSegment.points[currentSegment.points.length - 1];
@@ -91,16 +86,13 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
   const replay = useCallback(() => {
     if (!pathRefs.current.length) return;
 
-    // Kill existing timeline
     timelineRef.current?.kill();
 
-    // Analyze each stroke to get segments
     const allSegments = pathRefs.current.map((path) => {
       if (!path) return [];
       return analyzePathSegments(path);
     });
 
-    // Create new timeline
     timelineRef.current = gsap.timeline({
       onComplete: () => onComplete?.(),
     });
@@ -115,82 +107,94 @@ export default function StrokeAnimation({ strokes, onComplete }: StrokeAnimation
       const duration = stroke.duration || 800;
       const delaySeconds = cumulativeDelay / 1000;
 
-      if (segments.length <= 1) {
-        // Simple case: single direction stroke
-        const pathLength = path.getTotalLength();
-        const points = [];
-        const numSamples = 10;
-        for (let i = 0; i <= numSamples; i++) {
-          try {
-            points.push(path.getPointAtLength((i / numSamples) * pathLength));
-          } catch {
-            points.push({ x: 512, y: 512 });
-          }
+      // Get bounding box of entire stroke
+      const pathLength = path.getTotalLength();
+      const points: { x: number; y: number }[] = [];
+      const numSamples = 20;
+      for (let i = 0; i <= numSamples; i++) {
+        try {
+          points.push(path.getPointAtLength((i / numSamples) * pathLength));
+        } catch {
+          points.push({ x: 512, y: 512 });
         }
+      }
 
-        const xs = points.map(p => p.x);
-        const ys = points.map(p => p.y);
-        const width = Math.max(...xs) - Math.min(...xs);
-        const height = Math.max(...ys) - Math.min(...ys);
-        const isHorizontal = width > height * 1.2;
+      const xs = points.map(p => p.x);
+      const ys = points.map(p => p.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const width = maxX - minX;
+      const height = maxY - minY;
 
-        // Set initial clip - hide the END of the stroke (right for horizontal, bottom for vertical)
-        path.style.clipPath = isHorizontal
-          ? 'inset(0% 100% 0 0)'  // Hide right (fill from left to right)
-          : 'inset(0 0 100% 0)';   // Hide bottom (fill from top to bottom)
+      // Determine overall stroke direction and fill direction
+      // Horizontal: fill left (minX) to right (maxX)
+      // Vertical: fill top (minY) to bottom (maxY)
+      if (segments.length <= 1) {
+        // Simple stroke - use bounding box to determine fill direction
+        path.style.clipPath = width > height
+          ? 'inset(0% 0 0 100%)'  // Hide left, reveal left-to-right
+          : 'inset(0 0 0 0)';      // For vertical, hide top to reveal top-to-bottom
 
-        // Animate to reveal
+        path.style.clipPath = width > height
+          ? 'inset(0% 0 0 100%)'  // left to right
+          : 'inset(100% 0 0 0)';  // top to bottom
+
         timelineRef.current!.to(
           path,
           {
-            clipPath: 'inset(0% 0% 0 0)',
+            clipPath: 'inset(0% 0 0 0)',
             duration: duration / 1000,
             ease: 'power2.inOut',
           },
           delaySeconds
         );
       } else {
-        // Complex stroke: detect overall direction for initial clip
-        const pathLength = path.getTotalLength();
-        const points = [];
-        const numSamples = 10;
-        for (let i = 0; i <= numSamples; i++) {
-          try {
-            points.push(path.getPointAtLength((i / numSamples) * pathLength));
-          } catch {
-            points.push({ x: 512, y: 512 });
-          }
+        // Complex stroke with multiple segments
+        // Determine fill direction based on first segment's start point
+        const firstSeg = segments[0];
+        const isHorizontal = firstSeg.direction === 'horizontal';
+
+        if (isHorizontal) {
+          // Horizontal first - fill left to right
+          path.style.clipPath = 'inset(0% 0 0 100%)';
+
+          // Progressive reveal for each segment
+          segments.forEach((_, segIndex) => {
+            const progress = ((segIndex + 1) / segments.length);
+            const clipValue = 100 - progress * 100;
+
+            timelineRef.current!.to(
+              path,
+              {
+                clipPath: `inset(0% ${clipValue}% 0 0)`,
+                duration: (duration / 1000) / segments.length,
+                ease: 'power2.inOut',
+              },
+              delaySeconds + (segIndex * (duration / 1000) / segments.length)
+            );
+          });
+        } else {
+          // Vertical first - fill top to bottom
+          path.style.clipPath = 'inset(100% 0 0 0)';
+
+          // Progressive reveal for each segment
+          segments.forEach((_, segIndex) => {
+            const progress = ((segIndex + 1) / segments.length);
+            const clipValue = 100 - progress * 100;
+
+            timelineRef.current!.to(
+              path,
+              {
+                clipPath: `inset(${clipValue}% 0 0 0)`,
+                duration: (duration / 1000) / segments.length,
+                ease: 'power2.inOut',
+              },
+              delaySeconds + (segIndex * (duration / 1000) / segments.length)
+            );
+          });
         }
-        const xs = points.map(p => p.x);
-        const ys = points.map(p => p.y);
-        const width = Math.max(...xs) - Math.min(...xs);
-        const height = Math.max(...ys) - Math.min(...ys);
-        const isHorizontal = width > height * 1.2;
-
-        // Complex stroke: animate in segments - hide from end
-        path.style.clipPath = isHorizontal
-          ? 'inset(0% 100% 0 0)'  // Hide right (fill from left to right)
-          : 'inset(0 0 100% 0)';   // Hide bottom (fill from top to bottom)
-
-        // Create staggered reveal for each segment
-        const segmentDuration = (duration / 1000) / segments.length;
-        const segmentDelay = delaySeconds;
-
-        segments.forEach((seg, segIndex) => {
-          const clipStart = seg.direction === 'horizontal'
-            ? `inset(0% 0 0 ${100 - ((segIndex + 1) / segments.length) * 100}%)`
-            : `inset(${100 - ((segIndex + 1) / segments.length) * 100}% 0 0 0)`;
-
-          timelineRef.current!.to(
-            path,
-            {
-              clipPath: clipStart,
-              duration: segmentDuration,
-              ease: 'power2.inOut',
-            },
-            segmentDelay + segIndex * segmentDuration
-          );
-        });
       }
 
       cumulativeDelay += duration + 300;
